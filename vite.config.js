@@ -1,17 +1,7 @@
-module.exports = {
-    build: {
-      rollupOptions: {
-        input: {
-          main: '/dist/index.html', // Path to the version in the 'dist' folder
-          mobile: '/mobile/index.html' // Path to the version in the 'mobile' folder
-        },
-        external: [
-          '/js/index.js',
-          '/js/aree_broadmann.js',
-          '/js/redirect.js'
-        ]
-      }
-    }
-  };
-  
-  
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+// https://vite.dev/config/
+export default defineConfig({
+  plugins: [react()],
+})
