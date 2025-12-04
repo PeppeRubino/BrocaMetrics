@@ -199,7 +199,7 @@ const InfoContainer = ({
             </div>
           </>
         ) : (
-          <div className="p-2 flex items-center justify-center">
+          <div className="flex items-center justify-center">
             <button
               className="px-4 py-2 bg-gray-800 text-white rounded-lg cursor-move hover:opacity-95 transition"
               onMouseDown={handleStart}
