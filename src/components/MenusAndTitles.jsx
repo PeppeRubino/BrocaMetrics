@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import PausePlay from './PausePlay';
-import { LOBES_MODEL_1, LOBES_MODEL_2, LOBES_MODEL_3, SECTION_PLANES, SECTION_TO_PART_MAP } from './Variables.jsx';
+import { BROADMANN_POINTS, LOBES_MODEL_1, LOBES_MODEL_2, LOBES_MODEL_3, SECTION_PLANES, SECTION_TO_PART_MAP } from './Variables.jsx';
 
 const MenusAndTitles = ({ isMenuOpen, current, currentModel, currentScreen, sceneRef, setSelectedNumber, setCurrentModel, setIsMenuOpen }) => {
   const [input, setInput] = useState('');
@@ -16,6 +16,8 @@ const MenusAndTitles = ({ isMenuOpen, current, currentModel, currentScreen, scen
   const divRef = useRef(null);
   const [activeLobe, setActiveLobe] = useState(null);
   const [activeSection, setActiveSection] = useState(null);
+  const [selectedBrodmannInfo, setSelectedBrodmannInfo] = useState(null);
+
 
   // Detect if this component is used as a controlled drawer by parent
   const isDrawer = typeof setIsMenuOpen === 'function' && typeof isMenuOpen !== 'undefined';
@@ -99,23 +101,30 @@ const MenusAndTitles = ({ isMenuOpen, current, currentModel, currentScreen, scen
   const displayedModel = typeof currentModel === 'number' ? currentModel : localModel;
 
   const change = (next) => {
-    const clamped = Math.max(1, Math.min(3, Number(next) || 1));
+    // parse sicuro del valore
+    const parsed = Number.isFinite(Number(next)) ? Number(next) : 1;
+    // normalizza su 1..3 con wrap usando modulo
+    const wrapped = (((Math.floor(parsed) - 1) % 3) + 3) % 3 + 1; // sempre 1..3
+
     if (typeof setCurrentModel === 'function') {
-      try { setCurrentModel(clamped); } catch (err) { console.warn('setCurrentModel threw an error:', err); }
-    } else setLocalModel(clamped);
+      try { setCurrentModel(wrapped); } catch (err) { console.warn('setCurrentModel threw an error:', err); }
+    } else {
+      setLocalModel(wrapped);
+    }
 
     try {
       const s = sceneRef?.current;
       if (!s) return;
-      if (typeof s.changeModel === 'function') { s.changeModel(clamped); return; }
-      if (typeof s.loadModel === 'function') { s.loadModel(clamped); return; }
-      if (typeof s.switchModel === 'function') { s.switchModel(clamped); return; }
-      if (typeof s.setModelIndex === 'function') { s.setModelIndex(clamped); return; }
+      if (typeof s.changeModel === 'function') { s.changeModel(wrapped); return; }
+      if (typeof s.loadModel === 'function') { s.loadModel(wrapped); return; }
+      if (typeof s.switchModel === 'function') { s.switchModel(wrapped); return; }
+      if (typeof s.setModelIndex === 'function') { s.setModelIndex(wrapped); return; }
       console.debug('No changeModel/loadModel/switchModel on sceneRef; model state updated locally/parent-only.');
     } catch (err) {
       console.error('Error while notifying sceneRef about model change:', err);
     }
   };
+
 
   const handleSectionClick = (item) => {
     const id = item.id;
@@ -146,19 +155,91 @@ const MenusAndTitles = ({ isMenuOpen, current, currentModel, currentScreen, scen
 
   const handleSectionPlaneClick = (planeId) => {
     try {
-      sceneRef?.current?.showSections?.(planeId);
-      setActiveSection(prev => prev === planeId ? null : planeId);
-    } catch (err) { console.error('Error calling showSections:', err); }
+      console.log('[MenusAndTitles] section click:', { planeId, type: typeof planeId });
+      console.log('[MenusAndTitles] SECTION_PLANES:', SECTION_PLANES);
+
+      const s = sceneRef?.current;
+      // aggiorna activeSection usando confronto stringa per evitare mismatch tipo
+      const toggleActive = () => setActiveSection(prev => (String(prev) === String(planeId) ? null : planeId));
+
+      if (!s) {
+        console.warn('[MenusAndTitles] sceneRef.current è falsy, niente da chiamare');
+        toggleActive();
+        return;
+      }
+
+      // log dei metodi esposti (solo una volta)
+      if (!s._loggedMethods) {
+        console.log('[MenusAndTitles] sceneRef methods:', Object.keys(s));
+        s._loggedMethods = true;
+      }
+
+      // chiamata diretta se esiste
+      if (typeof s.showSections === 'function') {
+        console.log('[MenusAndTitles] Calling showSections with:', planeId);
+        s.showSections(planeId);
+        toggleActive();
+        return;
+      }
+
+      // alternative comuni
+      const altNames = ['showSection', 'toggleSection', 'showSectionPlane', 'displaySection'];
+      for (const name of altNames) {
+        if (typeof s[name] === 'function') {
+          console.log(`[MenusAndTitles] Calling alternative ${name} with:`, planeId);
+          s[name](planeId);
+          toggleActive();
+          return;
+        }
+      }
+
+      // prova con indice (se la scena si aspetta un index)
+      const idx = SECTION_PLANES.findIndex(p => String(p.id) === String(planeId));
+      if (idx >= 0 && typeof s.showSections === 'function') {
+        console.log('[MenusAndTitles] showSections expects index, calling with index:', idx);
+        s.showSections(idx);
+        // aggiorna activeSection conservando il tipo index
+        setActiveSection(prev => (prev === idx ? null : idx));
+        return;
+      }
+
+      console.warn('[MenusAndTitles] Nessun metodo showSections / alternative trovato su sceneRef; provati alternate names e indice.');
+      toggleActive();
+    } catch (err) {
+      console.error('Error in handleSectionPlaneClick (debug):', err);
+    }
   };
+
 
   const handleSubmit = () => {
     const value = input.trim();
     const n = parseInt(value, 10);
-    if (!value || Number.isNaN(n) || n < 1 || n > 52) { setError('Inserisci un numero valido (1–52)'); return; }
+    if (!value || Number.isNaN(n) || n < 1 || n > 52) {
+      setError('Inserisci un numero valido (1–52)');
+      setSelectedBrodmannInfo(null);
+      return;
+    }
     setError('');
     setSelectedNumber?.(n);
-    try { sceneRef?.current?.showPoint?.(n); } catch (err) { console.error('Error calling showPoint:', err); }
+
+    // prendi descrizione/label da Variables.jsx
+    const info = BROADMANN_POINTS.find(p => Number(p.id) === n) || null;
+    setSelectedBrodmannInfo(info);
+
+    try {
+      if (typeof sceneRef?.current?.showPoint === 'function') {
+        sceneRef.current.showPoint(n);
+      } else {
+        console.warn('sceneRef.current.showPoint non disponibile');
+      }
+    } catch (err) {
+      console.error('Error calling showPoint:', err);
+    }
+
+    // opzionale: svuota input dopo submit
+    // setInput('');
   };
+
 
   const isLobesVisible = visibleMode === 1;
   const isSectionsVisible = visibleMode === 2;
@@ -309,7 +390,7 @@ const MenusAndTitles = ({ isMenuOpen, current, currentModel, currentScreen, scen
                   onClick={() => handleSectionPlaneClick(p.id)}
                   onMouseDown={(e) => e.stopPropagation()}
                   onTouchStart={(e) => e.stopPropagation()}
-                  className={`px-3 py-2 rounded-md ${activeSection === p.id ? 'bg-blue-100' : 'bg-white/90'} hover:bg-gray-100 transition text-sm text-gray-800 shadow-sm border border-gray-100`}
+                  className={`px-3 py-2 rounded-md ${String(activeSection) === String(p.id) ? 'bg-blue-100' : 'bg-white/90'} hover:bg-gray-100 transition text-sm text-gray-800 shadow-sm border border-gray-100`}
                   type="button"
                 >
                   {p.label}
@@ -344,6 +425,7 @@ const MenusAndTitles = ({ isMenuOpen, current, currentModel, currentScreen, scen
                 </button>
               </div>
               <p className="text-xs text-gray-400 mt-2 mb-2">Se non vedi il punto, prova "Change Model".</p>
+
               {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
             </div>
           )}

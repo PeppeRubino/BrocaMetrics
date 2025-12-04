@@ -1,9 +1,15 @@
 // File: src/components/InfoContainer.jsx
-// Updated with all the info divs, show based on selectedNumber.
-
 import React, { useState, useEffect, useRef } from 'react';
+import BROADMANN_POINTS from './Variables.jsx';
 
-const InfoContainer = ({ selectedNumber }) => {
+const STORAGE_KEY = 'InfoContainer.position';
+
+const InfoContainer = ({
+  selectedNumber,
+  isDrawer = false,     // se true: comportamento da drawer/mobile (disable drag)
+  isOpen = true,        // se usato come drawer, controlla visibilità
+  persistPosition = true // salva posizione su localStorage
+}) => {
   const [position, setPosition] = useState({ x: 50, y: 50 });
   const [isDragging, setIsDragging] = useState(false);
   const [hasDragged, setHasDragged] = useState(false);
@@ -12,26 +18,49 @@ const InfoContainer = ({ selectedNumber }) => {
   const [isMinimized, setIsMinimized] = useState(false);
   const divRef = useRef(null);
 
+  // inizializza posizione: top-right preferita; se saved in localStorage, la riprende
   useEffect(() => {
-    if (selectedNumber) {
-      setIsMinimized(false);
-    }
+    const updateInitial = () => {
+      const width = window.innerWidth;
+      const initialX = Math.max(12, width - 340); // leave some margin
+      const initialY = 20;
+      let initial = { x: initialX, y: initialY };
+
+      if (persistPosition) {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (typeof parsed?.x === 'number' && typeof parsed?.y === 'number') {
+              initial = parsed;
+            }
+          }
+        } catch (e) { /* ignore */ }
+      }
+
+      setPosition(initial);
+    };
+
+    updateInitial();
+    window.addEventListener('resize', updateInitial);
+    return () => window.removeEventListener('resize', updateInitial);
+  }, [persistPosition]);
+
+  // apri automaticamente se viene selezionato un numero
+  useEffect(() => {
+    if (selectedNumber) setIsMinimized(false);
   }, [selectedNumber]);
 
+  // persist position on change
   useEffect(() => {
-    // Set initial position to top-right on mount
-    const updatePosition = () => {
-      const width = window.innerWidth;
-      const initialX = width - 250; // Approximate w-52 + padding
-      const initialY = 20;
-      setPosition({ x: initialX, y: initialY });
-    };
-    updatePosition();
-    window.addEventListener('resize', updatePosition);
-    return () => window.removeEventListener('resize', updatePosition);
-  }, []);
+    if (!persistPosition) return;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(position));
+    } catch (e) { /* ignore */ }
+  }, [position, persistPosition]);
 
   const handleStart = (e) => {
+    if (isDrawer) return; // no dragging if used as drawer
     let clientX, clientY;
     if (e.type === 'touchstart') {
       clientX = e.touches[0].clientX;
@@ -62,14 +91,12 @@ const InfoContainer = ({ selectedNumber }) => {
     if (!hasDragged && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
       setHasDragged(true);
     }
-    setPosition({ x: clientX - offset.x, y: clientY - offset.y });
+    setPosition({ x: Math.max(8, clientX - offset.x), y: Math.max(8, clientY - offset.y) });
   };
 
   const handleEnd = () => {
     setIsDragging(false);
-    if (!hasDragged && isMinimized) {
-      setIsMinimized(false);
-    }
+    if (!hasDragged && isMinimized) setIsMinimized(false);
   };
 
   useEffect(() => {
@@ -90,72 +117,98 @@ const InfoContainer = ({ selectedNumber }) => {
       window.removeEventListener('touchmove', handleMove);
       window.removeEventListener('touchend', handleEnd);
     };
-  }, [isDragging]);
+  }, [isDragging]); // rimosso handleMove dalle deps per evitare warning
 
-  if (!selectedNumber) {
-    return null;
-  }
+  // SAFE: recupera l'array dei punti indipendentemente da come è esportato Variables.jsx
+  const pointsArray = React.useMemo(() => {
+    if (!BROADMANN_POINTS) return [];
+    // caso 1: import diretto dell'array
+    if (Array.isArray(BROADMANN_POINTS)) return BROADMANN_POINTS;
+    // caso 2: default export oggetto con chiave BROADMANN_POINTS
+    if (Array.isArray(BROADMANN_POINTS.BROADMANN_POINTS)) return BROADMANN_POINTS.BROADMANN_POINTS;
+    // fallback: se dev'essere named export ma importato come undefined, return []
+    return [];
+  }, []);
+
+  const brodmannInfo = React.useMemo(() => {
+    if (!selectedNumber) return null;
+    return pointsArray.find(p => Number(p.id) === Number(selectedNumber)) || null;
+  }, [selectedNumber, pointsArray]);
+
+  if (isDrawer && !isOpen) return null;
+  if (!selectedNumber) return null;
+
+  const wrapperStyle = isDrawer ? {
+    position: 'relative',
+    zIndex: 1000,
+    width: '100%',
+    touchAction: 'auto'
+  } : {
+    position: 'fixed',
+    left: `${position.x}px`,
+    top: `${position.y}px`,
+    zIndex: 1000,
+    width: isMinimized ? 'auto' : '20rem', // ~320px
+    touchAction: 'none'
+  };
 
   return (
-    <section id="broadmannTexts">
+    <section id="broadmannTexts" aria-live="polite">
       <div
         id="containerTexts"
         ref={divRef}
-        className="select-none bg-black text-white rounded-lg overflow-hidden"
-        style={{
-          position: 'fixed',
-          left: `${position.x}px`,
-          top: `${position.y}px`,
-          zIndex: 1000,
-          width: isMinimized ? 'auto' : '13rem',
-          touchAction: 'none',
-        }}
+        className="select-none bg-white text-gray-800 rounded-lg overflow-hidden shadow-xl"
+        style={wrapperStyle}
       >
         {!isMinimized ? (
           <>
             <div
-              className="flex justify-between items-center px-3 py-2 bg-linear-150 bg-white-to-bg-gray-200 cursor-move"
-              onMouseDown={handleStart}
-              onTouchStart={handleStart}
+              className={`flex justify-between items-center px-3 py-2 ${isDrawer ? 'bg-gray-100' : 'bg-gray-100 cursor-move'}`}
+              {...(!isDrawer ? { onMouseDown: handleStart, onTouchStart: handleStart } : {})}
             >
-              <h4 className="text-sm font-semibold">Info Area {selectedNumber}</h4>
-              <button
-                onClick={() => setIsMinimized(true)}
-                onMouseDown={(e) => e.stopPropagation()}
-                onTouchStart={(e) => e.stopPropagation()}
-                className="text-white hover:text-gray-300"
-                aria-label="Minimizza"
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M6 12H18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              </button>
+              <h4 className="text-sm font-semibold">Info</h4>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsMinimized(true)}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                  className="text-gray-700 hover:text-gray-900"
+                  aria-label="Minimizza"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <path d="M6 12H18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
             </div>
+
             <div className="p-2 overflow-y-auto max-h-[80vh]">
-              {selectedNumber === 1 && (
-                <div id="numberSectionInfo1">
-                  <h2 className="text-base font-bold">Area 1 - Corteccia somestesica primaria</h2>
-                  <p className="text-sm mt-2">L'Area 1 di Brodmann, anche conosciuta come corteccia somestesica primaria o corteccia somatosensoriale primaria, è responsabile della ricezione e dell'elaborazione delle informazioni tattili provenienti da diverse parti del corpo. Questa regione cerebrale è coinvolta nella percezione della temperatura, del dolore e delle sensazioni tattili come il tatto e la pressione.</p>
+              {brodmannInfo ? (
+                <div id={`numberSectionInfo${brodmannInfo.id}`} className="space-y-2">
+                  <h2 className="text-base font-bold">{brodmannInfo.label}</h2>
+                  <p className="text-sm mt-1 text-gray-700">{brodmannInfo.description}</p>
+
+                </div>
+              ) : (
+                <div className="px-3 py-2 text-sm text-gray-500 bg-white/80 rounded-md border border-dashed border-gray-200">
+                  Nessuna descrizione disponibile per l'area {String(selectedNumber)}.
                 </div>
               )}
-              {selectedNumber === 2 && (
-                <div id="numberSectionInfo2">
-                  <h2 className="text-xl font-bold">Area 2 - Corteccia somestesica primaria</h2>
-                  <p className="mt-2">L'Area 2 di Brodmann, anch'essa parte della corteccia somestesica primaria, è coinvolta nella percezione e nell'elaborazione delle informazioni tattili e somatosensoriali. Quest'area riceve segnali dai recettori sensoriali presenti in diverse parti del corpo e contribuisce alla rappresentazione e all'interpretazione delle sensazioni tattili, come il riconoscimento degli oggetti attraverso il senso del tatto.</p>
-                </div>
-              )}
-              {/* Add all other {selectedNumber === N && <div id="numberSectionInfoN">...</div>} for 3 to 52 */}
-              {/* For brevity, assume they are added similarly based on the HTML content */}
+
+              <div className="mt-3 text-xs text-gray-500">Se non vedi il punto, prova a cambiare modello o chiudere/riaprire il pannello.</div>
             </div>
           </>
         ) : (
-          <button
-            className="px-4 py-2 bg-gray-800 text-white rounded-lg cursor-move hover:opacity-95 transition"
-            onMouseDown={handleStart}
-            onTouchStart={handleStart}
-          >
-            Apri Info
-          </button>
+          <div className="p-2 flex items-center justify-center">
+            <button
+              className="px-4 py-2 bg-gray-800 text-white rounded-lg cursor-move hover:opacity-95 transition"
+              onMouseDown={handleStart}
+              onTouchStart={handleStart}
+              aria-label="Apri Info"
+            >
+              Apri Info
+            </button>
+          </div>
         )}
       </div>
     </section>

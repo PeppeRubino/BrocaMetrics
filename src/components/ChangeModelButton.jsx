@@ -2,12 +2,12 @@ import React from 'react';
 
 const ChangeModelButton = ({ currentModel, setCurrentModel, onModelChange }) => {
   const handleChange = () => {
-    const nextModel = currentModel === 1 ? 2 : currentModel === 2 ? 3 : 1;
-    setCurrentModel(nextModel);
-    if (typeof onModelChange === 'function') {
-      onModelChange(nextModel); // notifico alla scena il nuovo modello
-    }
-  };
+  const base = Number.isFinite(Number(currentModel)) ? Number(currentModel) : 1;
+  const nextModel = ((base % 3) + 1); // 1->2, 2->3, 3->1, 4->2 etc. (wrap every 3)
+  if (typeof setCurrentModel === 'function') setCurrentModel(nextModel);
+  if (typeof onModelChange === 'function') onModelChange(nextModel);
+};
+
 
   return (
     <div className="relative flex justify-center items-center">
